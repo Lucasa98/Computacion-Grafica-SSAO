@@ -22,7 +22,7 @@
 #include <vector>
 using namespace std;
 
-unsigned int TextureFromFile(const char *path, const string &directory, bool gamma = false);
+unsigned int TextureFromFile(const aiString& path, const string &directory, bool gamma = false);
 
 class Model 
 {
@@ -192,7 +192,7 @@ private:
             if(!skip)
             {   // if texture hasn't been loaded already, load it
                 Texture texture;
-                texture.id = TextureFromFile(str.C_Str(), this->directory);
+                texture.id = TextureFromFile(str, this->directory);
                 texture.type = typeName;
                 texture.path = str.C_Str();
                 textures.push_back(texture);
@@ -204,9 +204,15 @@ private:
 };
 
 
-unsigned int TextureFromFile(const char *path, const string &directory, bool gamma)
+unsigned int TextureFromFile(const aiString& str, const string &directory, bool gamma)
 {
-    string filename = string(path);
+    const char* path = str.C_Str();
+
+    while (path[0] == '\0') {
+        path = path + 1;
+    }
+
+    string filename(path);
     filename = directory + '/' + filename;
 
     unsigned int textureID;
@@ -214,7 +220,7 @@ unsigned int TextureFromFile(const char *path, const string &directory, bool gam
 
     int width, height, nrComponents;
     unsigned char *data = stbi_load(filename.c_str(), &width, &height, &nrComponents, 0);
-    if (data)
+    if (str != aiString())
     {
         GLenum format;
         if (nrComponents == 1)
