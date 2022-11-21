@@ -24,6 +24,7 @@
 //#include "imgui.h"
 
 #include <iostream>
+#include <random>
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
@@ -35,7 +36,12 @@ void renderCube();
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
-bool SSAO = false;
+
+// SSAO
+bool SSAO = false; bool zPressed = false;
+int samplesNum = 64; float ssaoRadius = 1.0; float ssaoBias = 0.025; float ssaoIntensity = 1.0;
+std::vector<glm::vec3> GenerateSamples(int n = 32);
+std::vector<glm::vec3> GenerateRotationNoise();
 
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -110,8 +116,9 @@ int main()
     // build and compile shaders
     // -------------------------
     Shader shaderGeometryPass("gbuffer.vert", "gbuffer.frag");
-    Shader shaderLightingPass("deferred_shading.vert", "deferred_shading.frag");
-    Shader shaderLightBox("deferred_lightbox.vert", "deferred_lightbox.frag");
+    Shader shaderLightingPass("def_lighting_shader.vert", "def_lighting_shader.frag");
+    Shader shaderSSAOPass("ssao_lighting_shader.vert", "ssao_lighting_shader.frag");
+    Shader shaderSSAO("ssao_shader.vert", "ssao_shader.frag");
 
     // load models
     // -----------
@@ -196,6 +203,52 @@ int main()
     shaderLightingPass.setInt("gNormal", 1);
     shaderLightingPass.setInt("gAlbedoSpec", 2);
 
+    // ---------- SSAO ----------
+    /*
+    * Basicamente generamos puntos de muestra aleatorios en una semiesfera centrada en cada fragmento
+    * y orientada en dirección a la normal del fragmento.
+    *   1 - Generamos vectores aleatorios acotados en una semiesfera apuntando a +z.
+    *   2 - Generamos una textura 4x4 con vectores de rotacion aleatorios.
+    */
+    // muestras (samples)
+    std::vector<glm::vec3> samples = GenerateSamples(64);
+    // vectores rotacion y textura
+    std::vector<glm::vec3> rotationNoise = GenerateRotationNoise();
+    unsigned int noiseTexture;
+    glGenTextures(1, &noiseTexture);
+    glBindTexture(GL_TEXTURE_2D, noiseTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, 4, 4, 0, GL_RGB, GL_FLOAT, rotationNoise.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);   // importante setear el wrapping en repeat
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+    // Framebuffer para guardar el valor de oclusion
+    unsigned int ssaoFBO;
+    glGenFramebuffers(1, &ssaoFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+
+    unsigned int ssaoColorBuffer;
+    glGenTextures(1, &ssaoColorBuffer);
+    glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, SCR_WIDTH, SCR_HEIGHT, 0, GL_RED, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ssaoColorBuffer, 0);
+
+    shaderSSAO.use();
+    shaderSSAO.setInt("gPosition", 0);
+    shaderSSAO.setInt("gNormal", 1);
+    shaderSSAO.setInt("gAlbedoSpec", 2);
+
+    shaderSSAOPass.use();
+    // enviar muestras al shader
+    for (int i = 0; i < 64; ++i)
+        shaderSSAOPass.setVec3("samples[" + std::to_string(i) + "]", samples[i]);
+
+    // ----------      ----------
+
     glClearColor(0.25f, 0.25f, 0.4f, 1.0f);
 
     // render loop
@@ -256,13 +309,37 @@ int main()
             superficie2.Draw(shaderGeometryPass);
         }
         
+        // ---------- SSAO ----------
+        // mandar la informacion del gBuffer al SSAO framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, gPosition);
+            glActiveTexture(GL_TEXTURE1);
+            glBindTexture(GL_TEXTURE_2D, gNormal);
+            glActiveTexture(GL_TEXTURE2);
+            glBindTexture(GL_TEXTURE_2D, noiseTexture);
+
+            shaderSSAOPass.use();
+            shaderSSAOPass.setMat4("projection", projection);
+            shaderSSAOPass.setInt("samplesNum", samplesNum);
+            shaderSSAOPass.setFloat("radius", ssaoRadius);
+            shaderSSAOPass.setFloat("bias", ssaoBias);
+            shaderSSAOPass.setFloat("Intensity", ssaoIntensity);
+            renderQuad();
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        // ----------      ----------
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // 2. lighting pass: calculate lighting by iterating over a screen filled quad pixel-by-pixel using the gbuffer's content.
         // -----------------------------------------------------------------------------------------------------------------------
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        shaderLightingPass.use();
+
+        if (SSAO) shaderSSAO.use();     // la diferencia es que uno usa la oclusion y el otro no
+        else shaderLightingPass.use();
+
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, gPosition);
         glActiveTexture(GL_TEXTURE1);
@@ -270,39 +347,25 @@ int main()
         glActiveTexture(GL_TEXTURE2);
         glBindTexture(GL_TEXTURE_2D, gAlbedoSpec);
         // send light relevant uniforms
-        shaderLightingPass.setVec3("light.Position", lightPosition);
-        shaderLightingPass.setVec3("light.Color", lightColor);
 
-        shaderLightingPass.setVec3("viewPos", camera.Position);
+        if (SSAO) {
+            shaderSSAO.setVec3("light.Position", lightPosition);
+            shaderSSAO.setVec3("light.Color", lightColor);
+            shaderSSAO.setVec3("viewPos", camera.Position);
+        }else {
+            shaderLightingPass.setVec3("light.Position", lightPosition);
+            shaderLightingPass.setVec3("light.Color", lightColor);
+            shaderLightingPass.setVec3("viewPos", camera.Position);
+        }
         
         // finally render quad
         renderQuad();
 
         // 2.5. copy content of geometry's depth buffer to default framebuffer's depth buffer
         // ----------------------------------------------------------------------------------
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0); // write to default framebuffer
-        // blit to default framebuffer. Note that this may or may not work as the internal formats of both the FBO and default framebuffer have to match.
-        // the internal formats are implementation defined. This works on all of my systems, but if it doesn't on yours you'll likely have to write to the 		
-        // depth buffer in another shader stage (or somehow see to match the default framebuffer's internal format with the FBO's internal format).
-        glBlitFramebuffer(0, 0, SCR_WIDTH, SCR_HEIGHT, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // lo borre porque no sirve
 
-        // 3. render lights on top of scene
-        // --------------------------------
-        /*shaderLightBox.use();
-        shaderLightBox.setMat4("projection", projection);
-        shaderLightBox.setMat4("view", view);
-        for (unsigned int i = 0; i < lightPositions.size(); i++)
-        {
-            model = glm::mat4(1.0f);
-            model = glm::translate(model, lightPositions[i]);
-            model = glm::scale(model, glm::vec3(0.125f));
-            shaderLightBox.setMat4("model", model);
-            shaderLightBox.setVec3("lightColor", lightColors[i]);
-            renderCube();
-        }*/
-
+        // ---------- ImGui ----------
         // settings sub-window
         /*ImGui::SetCurrentContext(imgui_context);
         ImGui_ImplOpenGL3_NewFrame();
@@ -316,6 +379,8 @@ int main()
         ImGui::End();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());*/
+
+        // ---------- ImGui ----------
 
         if (rotateModel) modelAngle += 1.f + deltaTime;
 
@@ -451,19 +516,26 @@ void processInput(GLFWwindow* window)
         camera.ProcessKeyboard(LEFT, deltaTime);
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
         camera.ProcessKeyboard(RIGHT, deltaTime);
-    if (!rPressed && glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+    if (!rPressed && glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)      // rotate
         rPressed = true;
     if (rPressed && glfwGetKey(window, GLFW_KEY_R) == GLFW_RELEASE) {
         rotateModel = !rotateModel;
         rPressed = false;
     }
-    if (glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS)
+    if (!oPressed && glfwGetKey(window, GLFW_KEY_O) == GLFW_PRESS)                   // model
         oPressed = true;
     if (oPressed && glfwGetKey(window, GLFW_KEY_O) == GLFW_RELEASE) {
         ++currentModel;
         if (currentModel >= 5) currentModel = 0;
         oPressed = false;
         std::cout << "currentModel: " << currentModel << std::endl;
+    }
+    if (!zPressed && glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)                   // SSAO
+        zPressed = true;
+    if (zPressed && glfwGetKey(window, GLFW_KEY_Z) == GLFW_RELEASE) {
+        SSAO = !SSAO;
+        zPressed = false;
+        if (SSAO) std::cout << "SSAO active\n"; else std::cout << "SSAO deactivated\n";
     }
 }
 
@@ -512,3 +584,41 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
 //        },
 //        (void*)&items, items.size(), -1);
 //}
+
+/*
+* Genera un "Kernel" (asi le dice learnopengl) de muestras (samples) que se usarán para hacer un offset
+* a la posición en view-space del fragmento en una semiesfera orientada hacia la normal del fragmento.
+*/
+std::vector<glm::vec3> GenerateSamples(int n) {
+    std::uniform_real_distribution<float> randomFloats(0.0, 1.0);   // genera flotantes aleatorios en una distribucion uniforme
+    std::default_random_engine generator;       // genera numero pseudo-aleatorios
+    std::vector<glm::vec3> samples;
+    for (int i = 0; i < n; ++i) {
+        glm::vec3 sample(
+            randomFloats(generator) * 2.0 - 1.0,    // x random entre -1 y 1
+            randomFloats(generator) * 2.0 - 1.0,    // y random entre -1 y 1
+            randomFloats(generator));   // se supone que la normal de la superficie apunta a z
+        sample = glm::normalize(sample);
+        sample *= randomFloats(generator);  // una longitud aleatoria entre 0 y 1 (estarian acotados en la semiesfera)
+        // acá podríamos acomodarlos más cerca del origen, pero meh
+        samples.push_back(sample);
+    }
+    return samples;
+}
+
+/*
+* Genera una matriz de 4x4 con vectores de rotación pseudo aleatorios
+*/
+std::vector<glm::vec3> GenerateRotationNoise() {
+    std::uniform_real_distribution<float> randomFloats(0.0, 360.0);   // genera flotantes aleatorios en una distribucion uniforme
+    std::default_random_engine generator;       // genera numero pseudo-aleatorios
+    std::vector<glm::vec3> angles;
+    for (int i = 0; i < 16; ++i) {
+        glm::vec3 rotation(
+            randomFloats(generator) * 2.0 - 1.0,
+            randomFloats(generator) * 2.0 - 1.0,
+            0.f);
+        angles.push_back(rotation);
+    }
+    return angles;
+}

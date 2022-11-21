@@ -1,4 +1,5 @@
 ﻿  main.cpp
+C:\Projects\SSAO\main.cpp(42,68): warning C4305: 'inicializando': truncamiento de 'double' a 'float'
 glfw3.lib(init.obj) : warning LNK4099: no se encontró PDB 'glfw.pdb' con 'glfw3.lib(init.obj)' o en 'C:\Projects\SSAO\x64\Debug\glfw.pdb'; se vinculará el objeto sin tener en cuenta información de depuración
 glfw3.lib(window.obj) : warning LNK4099: no se encontró PDB 'glfw.pdb' con 'glfw3.lib(window.obj)' o en 'C:\Projects\SSAO\x64\Debug\glfw.pdb'; se vinculará el objeto sin tener en cuenta información de depuración
 glfw3.lib(input.obj) : warning LNK4099: no se encontró PDB 'glfw.pdb' con 'glfw3.lib(input.obj)' o en 'C:\Projects\SSAO\x64\Debug\glfw.pdb'; se vinculará el objeto sin tener en cuenta información de depuración
