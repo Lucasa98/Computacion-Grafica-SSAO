@@ -23,11 +23,11 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="gbuffer.vert" />
-    <None Include="gbuffer.frag" />
-    <None Include="deferred_shading.vert" />
-    <None Include="deferred_shading.frag" />
-    <None Include="deferred_lightbox.vert" />
-    <None Include="deferred_lightbox.frag" />
+    <FxCompile Include="gbuffer.vert" />
+    <FxCompile Include="gbuffer.frag" />
+    <FxCompile Include="deferred_lightbox.frag" />
+    <FxCompile Include="deferred_lightbox.vert" />
+    <FxCompile Include="deferred_shading.frag" />
+    <FxCompile Include="deferred_shading.vert" />
   </ItemGroup>
 </Project>
