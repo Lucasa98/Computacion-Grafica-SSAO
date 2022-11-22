@@ -1,9 +1,11 @@
 /*
-* ToDo:
-*  - ImGui
-*    - Model selection
-*    - SSAO selector
-*    - SSAO variables
+* Trabajo Práctico de Computación Gráfica
+*               FICH-UNL
+* Implementación de Screen Space Ambient Occlusion
+* Alves, Rodrigo
+* Saurin, Lucas
+* 
+* Se tomó como base código de LearnOpenGL.com
 */
 
 #include <glad/glad.h>
@@ -30,18 +32,19 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 void renderQuad();
-void renderCube();
 
-// settings
+// ventana settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // SSAO
 bool SSAO = false, zPressed = false, ssaoSmooth = true, kPressed = false;
-int samplesNum = 16; float ssaoRadius = 6.0; float ssaoBias = 0.025; float ssaoIntensity = 4.0;
+int samplesNum = 16; float ssaoRadius = 0.5; float ssaoBias = 0.01; float ssaoIntensity = 1.0;
 std::vector<glm::vec3> GenerateSamples(int n = 64);
 std::vector<glm::vec3> GenerateRotationNoise();
-bool DEBUG_Pos = false, pPressed = false, DEBUG_Normal = false, nPressed = false, DEBUG_SSAO = false, iPressed = false;
+
+// DEBUG shader flags
+bool DEBUG_Pos = false, unoPressed = false, DEBUG_Normal = false, dosPressed = false, DEBUG_SSAO = false, tresPressed = false, DEBUG_noise = false, cuatroPressed = false;
 
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -74,7 +77,7 @@ int main()
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 
-    // glfw window creation
+    // window
     // --------------------
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "SSAO", NULL, NULL);
     if (window == NULL)
@@ -96,10 +99,7 @@ int main()
     ImGui_ImplOpenGL3_Init("#version 330");
     ImGui::StyleColorsDark();
 
-    // tell GLFW to capture our mouse
-    //glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
-    // glad: load all OpenGL function pointers
+    // glad
     // ---------------------------------------
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
@@ -110,12 +110,7 @@ int main()
     // tell stb_image.h to flip loaded texture's on the y-axis (before loading model).
     stbi_set_flip_vertically_on_load(true);
 
-    // configure global opengl state
-    // -----------------------------
-    glEnable(GL_DEPTH_TEST);
-
-    // build and compile shaders
-    // -------------------------
+    // cargar shaders
     Shader shaderGeometryPass("gbuffer.vert", "gbuffer.frag");
     Shader shaderLightingPass("def_lighting_shader.vert", "def_lighting_shader.frag");
     Shader shaderSSAOPass("ssao_lighting_shader.vert", "ssao_lighting_shader.frag");
@@ -124,8 +119,7 @@ int main()
     Shader shaderNormal("gNormal_shader.vert", "gNormal_shader.frag");
     Shader shaderSSAOViewer("ssaoViewer_shader.vert", "ssaoViewer_shader.frag");
 
-    // load models
-    // -----------
+    // load models (Assimp es bastante lento)
     std::cout << "Loading models..." << std::endl;
     Model suzanne(FileSystem::getPath("models/suzanne/suzanne.obj"));
     std::cout << "Loading backpack..." << std::endl;
@@ -138,6 +132,7 @@ int main()
     Model superficie2(FileSystem::getPath("models/superficie2/superficie2.obj"));
     std::cout << "Models loaded." << std::endl;
 
+    // model matrix
     glm::vec3 objectPosition(0.0, 0.0, 0.0);
     glm::mat4 model = glm::mat4(1.0f);
     shaderGeometryPass.use();
@@ -146,14 +141,13 @@ int main()
     model = glm::translate(model, objectPosition);
     shaderGeometryPass.setMat4("model", model);
 
-    // configure g-buffer framebuffer
-    // ------------------------------
+    // g-buffer
     unsigned int gBuffer;
     glGenFramebuffers(1, &gBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
     unsigned int gPosition, gNormal, gAlbedo;
 
-    // position color buffer
+        // position buffer
     glGenTextures(1, &gPosition);
     glBindTexture(GL_TEXTURE_2D, gPosition);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
@@ -163,7 +157,7 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, gPosition, 0);
 
-    // normal color buffer
+        // normal buffer
     glGenTextures(1, &gNormal);
     glBindTexture(GL_TEXTURE_2D, gNormal);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
@@ -171,7 +165,7 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, gNormal, 0);
    
-    // color + specular color buffer
+        // color + specular color buffer (en caso del modelo tener una textura para la especular)
     glGenTextures(1, &gAlbedo);
     glBindTexture(GL_TEXTURE_2D, gAlbedo);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -179,11 +173,11 @@ int main()
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, gAlbedo, 0);
    
-    // tell OpenGL which color attachments we'll use (of this framebuffer) for rendering 
+        // decimos como vamos a enlazar los color-buffer para renderizar. Para este framebuffer
     unsigned int attachments[3] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 };
     glDrawBuffers(3, attachments);
     
-    // create and attach depth buffer (renderbuffer)
+        // create and attach depth buffer (renderbuffer)
     unsigned int rboDepth;
     glGenRenderbuffers(1, &rboDepth);
     glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
@@ -202,7 +196,7 @@ int main()
     glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
 
     unsigned int ssaoColorBuffer;
-    // SSAO color buffer
+        // SSAO buffer
     glGenTextures(1, &ssaoColorBuffer);
     glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, SCR_WIDTH, SCR_HEIGHT, 0, GL_RED, GL_FLOAT, NULL);
@@ -237,7 +231,6 @@ int main()
     // shader configuration
     // --------------------
     
-    
     shaderLightingPass.use();
     shaderLightingPass.setInt("gPosition", 0);
     shaderLightingPass.setInt("gNormal", 1);
@@ -255,7 +248,7 @@ int main()
     shaderSSAOPass.setInt("gNormal", 1);
     shaderSSAOPass.setInt("texNoise", 2);
 
-            // DEBUG gPos y gNormal shaders
+            // DEBUG gPos, gNormal y SSAOviewer shaders
     shaderPos.use();
     shaderPos.setInt("gPosition", 0);
     shaderPos.setInt("gNormal", 1);
@@ -274,6 +267,7 @@ int main()
     // ----------      ----------
 
     glClearColor(0.25f, 0.25f, 0.4f, 1.0f);
+    glEnable(GL_DEPTH_TEST);
 
     // render loop
     // -----------
@@ -286,12 +280,14 @@ int main()
         lastFrame = currentFrame;
 
         // input
-        // -----
         processInput(window);
+
+        // parametros para SSAO
         shaderSSAOPass.use();
         shaderSSAOPass.setInt("samplesNum", samplesNum);
         shaderSSAOPass.setFloat("radius", ssaoRadius);
         shaderSSAOPass.setFloat("bias", ssaoBias);
+        shaderSSAOPass.setFloat("intensity", ssaoIntensity);
         shaderSSAOPass.setBool("ssaoSmooth", ssaoSmooth);
 
         // render
@@ -341,7 +337,7 @@ int main()
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         
         // ---------- SSAO ----------
-        // mandar la informacion del gBuffer al SSAO framebuffer
+        // mandar la informacion del gBuffer al SSAO framebuffer para calcular el ssao-buffer
         glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
             glClear(GL_COLOR_BUFFER_BIT);
             shaderSSAOPass.use();
@@ -366,7 +362,7 @@ int main()
         // -----------------------------------------------------------------------------------------------------------------------
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // send light relevant uniforms
+            // send light relevant uniforms
         glm::vec3 lightPosView = glm::vec3(camera.GetViewMatrix() * glm::vec4(lightPosition, 1.0));
 
         if (SSAO) {
@@ -382,7 +378,8 @@ int main()
             shaderNormal.use();
             shaderNormal.setVec3("light.Position", lightPosView);
             shaderNormal.setVec3("light.Color", lightColor);
-        }else if(DEBUG_SSAO){
+        }
+        else if (DEBUG_SSAO) {
             shaderSSAOViewer.use();
             shaderSSAOViewer.setVec3("light.Position", lightPosView);
             shaderSSAOViewer.setVec3("light.Color", lightColor);
@@ -391,6 +388,7 @@ int main()
             shaderLightingPass.setVec3("light.Position", lightPosView);
             shaderLightingPass.setVec3("light.Color", lightColor);
         }
+            // activar las texturas del gbuffer + ssao-buffer
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, gPosition);
         glActiveTexture(GL_TEXTURE1);
@@ -404,27 +402,21 @@ int main()
         // finally render quad
         renderQuad();
 
-        // 2.5. copy content of geometry's depth buffer to default framebuffer's depth buffer
-        // ----------------------------------------------------------------------------------
-        // lo borre porque no sirve
-
         // ---------- ImGui ----------
-        // settings sub-window
         ImGui::SetCurrentContext(imgui_context);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGui::Begin("SSAO");
 
-        // func
         Combo(".obj (O)", &currentModel, models);
         ImGui::Checkbox("Rotate (R)", &rotateModel);
-        ImGui::Checkbox("Normals shading (N)", &DEBUG_Normal);
-        ImGui::Checkbox("Positions shading (P)", &DEBUG_Pos);
+        ImGui::Checkbox("Positions shading (1)", &DEBUG_Pos);
+        ImGui::Checkbox("Normals shading (2)", &DEBUG_Normal);
         ImGui::Checkbox("SSAO (Z)", &SSAO);
         ImGui::Checkbox("Smooth (K)", &ssaoSmooth);
-        ImGui::SliderFloat("SSAO intensity", &ssaoIntensity, 0.1f, 20.f);
-        ImGui::SliderFloat("SSAO radius", &ssaoRadius, 0.1f, 20.f);
+        ImGui::SliderFloat("SSAO intensity", &ssaoIntensity, 0.1f, 9.f);
+        ImGui::SliderFloat("SSAO radius", &ssaoRadius, 0.1f, 5.f);
         ImGui::SliderFloat("SSAO bias", &ssaoBias, 0.0f, 1.f);
         ImGui::SliderInt("SSAO samples", &samplesNum, 1, 64);
         ImGui::End();
@@ -444,82 +436,6 @@ int main()
     glfwTerminate();
     return 0;
 }
-
-// renderCube() renders a 1x1 3D cube in NDC.
-// -------------------------------------------------
-unsigned int cubeVAO = 0;
-unsigned int cubeVBO = 0;
-void renderCube()
-{
-    // initialize (if necessary)
-    if (cubeVAO == 0)
-    {
-        float vertices[] = {
-            // back face
-            -1.0f, -1.0f, -1.0f,  0.0f,  0.0f, -1.0f, 0.0f, 0.0f, // bottom-left
-             1.0f,  1.0f, -1.0f,  0.0f,  0.0f, -1.0f, 1.0f, 1.0f, // top-right
-             1.0f, -1.0f, -1.0f,  0.0f,  0.0f, -1.0f, 1.0f, 0.0f, // bottom-right         
-             1.0f,  1.0f, -1.0f,  0.0f,  0.0f, -1.0f, 1.0f, 1.0f, // top-right
-            -1.0f, -1.0f, -1.0f,  0.0f,  0.0f, -1.0f, 0.0f, 0.0f, // bottom-left
-            -1.0f,  1.0f, -1.0f,  0.0f,  0.0f, -1.0f, 0.0f, 1.0f, // top-left
-            // front face
-            -1.0f, -1.0f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f, // bottom-left
-             1.0f, -1.0f,  1.0f,  0.0f,  0.0f,  1.0f, 1.0f, 0.0f, // bottom-right
-             1.0f,  1.0f,  1.0f,  0.0f,  0.0f,  1.0f, 1.0f, 1.0f, // top-right
-             1.0f,  1.0f,  1.0f,  0.0f,  0.0f,  1.0f, 1.0f, 1.0f, // top-right
-            -1.0f,  1.0f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 1.0f, // top-left
-            -1.0f, -1.0f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f, // bottom-left
-            // left face
-            -1.0f,  1.0f,  1.0f, -1.0f,  0.0f,  0.0f, 1.0f, 0.0f, // top-right
-            -1.0f,  1.0f, -1.0f, -1.0f,  0.0f,  0.0f, 1.0f, 1.0f, // top-left
-            -1.0f, -1.0f, -1.0f, -1.0f,  0.0f,  0.0f, 0.0f, 1.0f, // bottom-left
-            -1.0f, -1.0f, -1.0f, -1.0f,  0.0f,  0.0f, 0.0f, 1.0f, // bottom-left
-            -1.0f, -1.0f,  1.0f, -1.0f,  0.0f,  0.0f, 0.0f, 0.0f, // bottom-right
-            -1.0f,  1.0f,  1.0f, -1.0f,  0.0f,  0.0f, 1.0f, 0.0f, // top-right
-            // right face
-             1.0f,  1.0f,  1.0f,  1.0f,  0.0f,  0.0f, 1.0f, 0.0f, // top-left
-             1.0f, -1.0f, -1.0f,  1.0f,  0.0f,  0.0f, 0.0f, 1.0f, // bottom-right
-             1.0f,  1.0f, -1.0f,  1.0f,  0.0f,  0.0f, 1.0f, 1.0f, // top-right         
-             1.0f, -1.0f, -1.0f,  1.0f,  0.0f,  0.0f, 0.0f, 1.0f, // bottom-right
-             1.0f,  1.0f,  1.0f,  1.0f,  0.0f,  0.0f, 1.0f, 0.0f, // top-left
-             1.0f, -1.0f,  1.0f,  1.0f,  0.0f,  0.0f, 0.0f, 0.0f, // bottom-left     
-            // bottom face
-            -1.0f, -1.0f, -1.0f,  0.0f, -1.0f,  0.0f, 0.0f, 1.0f, // top-right
-             1.0f, -1.0f, -1.0f,  0.0f, -1.0f,  0.0f, 1.0f, 1.0f, // top-left
-             1.0f, -1.0f,  1.0f,  0.0f, -1.0f,  0.0f, 1.0f, 0.0f, // bottom-left
-             1.0f, -1.0f,  1.0f,  0.0f, -1.0f,  0.0f, 1.0f, 0.0f, // bottom-left
-            -1.0f, -1.0f,  1.0f,  0.0f, -1.0f,  0.0f, 0.0f, 0.0f, // bottom-right
-            -1.0f, -1.0f, -1.0f,  0.0f, -1.0f,  0.0f, 0.0f, 1.0f, // top-right
-            // top face
-            -1.0f,  1.0f, -1.0f,  0.0f,  1.0f,  0.0f, 0.0f, 1.0f, // top-left
-             1.0f,  1.0f , 1.0f,  0.0f,  1.0f,  0.0f, 1.0f, 0.0f, // bottom-right
-             1.0f,  1.0f, -1.0f,  0.0f,  1.0f,  0.0f, 1.0f, 1.0f, // top-right     
-             1.0f,  1.0f,  1.0f,  0.0f,  1.0f,  0.0f, 1.0f, 0.0f, // bottom-right
-            -1.0f,  1.0f, -1.0f,  0.0f,  1.0f,  0.0f, 0.0f, 1.0f, // top-left
-            -1.0f,  1.0f,  1.0f,  0.0f,  1.0f,  0.0f, 0.0f, 0.0f  // bottom-left        
-        };
-        glGenVertexArrays(1, &cubeVAO);
-        glGenBuffers(1, &cubeVBO);
-        // fill buffer
-        glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-        // link vertex attributes
-        glBindVertexArray(cubeVAO);
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindVertexArray(0);
-    }
-    // render Cube
-    glBindVertexArray(cubeVAO);
-    glDrawArrays(GL_TRIANGLES, 0, 36);
-    glBindVertexArray(0);
-}
-
 
 // renderQuad() renders a 1x1 XY quad in NDC
 // -----------------------------------------
@@ -552,7 +468,7 @@ void renderQuad()
     glBindVertexArray(0);
 }
 
-// process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
+// inputs
 // ---------------------------------------------------------------------------------------------------------
 void processInput(GLFWwindow* window)
 {
@@ -586,23 +502,23 @@ void processInput(GLFWwindow* window)
         SSAO = !SSAO;
         zPressed = false;
     }
-    if (!pPressed && glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS)                   // SSAO
-        pPressed = true;
-    if (pPressed && glfwGetKey(window, GLFW_KEY_P) == GLFW_RELEASE) {
+    if (!unoPressed && glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS)                   // SSAO
+        unoPressed = true;
+    if (unoPressed && glfwGetKey(window, GLFW_KEY_1) == GLFW_RELEASE) {
         DEBUG_Pos = !DEBUG_Pos;
-        pPressed = false;
+        unoPressed = false;
     }
-    if (!nPressed && glfwGetKey(window, GLFW_KEY_N) == GLFW_PRESS)                   // SSAO
-        nPressed = true;
-    if (nPressed && glfwGetKey(window, GLFW_KEY_N) == GLFW_RELEASE) {
+    if (!dosPressed && glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS)                   // SSAO
+        dosPressed = true;
+    if (dosPressed && glfwGetKey(window, GLFW_KEY_2) == GLFW_RELEASE) {
         DEBUG_Normal = !DEBUG_Normal;
-        nPressed = false;
+        dosPressed = false;
     }
-    if (!iPressed && glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)                   // SSAO
-        iPressed = true;
-    if (iPressed && glfwGetKey(window, GLFW_KEY_I) == GLFW_RELEASE) {
+    if (!tresPressed && glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)                   // SSAO
+        tresPressed = true;
+    if (tresPressed && glfwGetKey(window, GLFW_KEY_3) == GLFW_RELEASE) {
         DEBUG_SSAO = !DEBUG_SSAO;
-        iPressed = false;
+        tresPressed = false;
     }
     if (!kPressed && glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)                   // SSAO
         kPressed = true;
@@ -623,6 +539,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 
 bool mouseButtonPressed = false;
 
+// input: mouse button
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {

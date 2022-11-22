@@ -9,13 +9,14 @@ uniform sampler2D texNoise;
 
 uniform vec3 samples[64];
 
-// parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
-int samplesNum = 64;
-float radius = 0.5;
-float bias = 0.025;
-bool ssaoSmooth = true;
+// parametros
+uniform int samplesNum = 64;
+uniform float radius = 0.5;
+uniform float bias = 0.025;
+uniform float intensity = 1.0;
+uniform bool ssaoSmooth = true;
 
-// tile noise texture over screen based on screen dimensions divided by noise size
+// textura de ruido
 const vec2 noiseScale = vec2(800.0/4.0, 600.0/4.0); 
 
 uniform mat4 projection;
@@ -55,7 +56,7 @@ void main()
         }else{
             rangeCheck = radius / abs(fragPos.z - sampleDepth);
         }
-        occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;           
+        occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck * intensity;           
     }
     occlusion = 1.0 - (occlusion / samplesNum);
     
