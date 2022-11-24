@@ -28,34 +28,36 @@ void main()
     vec3 normal = normalize(texture(gNormal, TexCoords).rgb);
     vec3 randomVec = normalize(texture(texNoise, TexCoords * noiseScale).xyz);
 
-    // create TBN change-of-basis matrix: from tangent-space to view-space
+    // matriz de cambio de base(de tangent-space a view-space)
     vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-    vec3 bitangent = cross(normal, tangent);
-    mat3 TBN = mat3(tangent, bitangent, normal);
-    // iterate over the sample kernel and calculate occlusion factor
+    vec3 binormal = cross(normal, tangent);
+    mat3 TBN = mat3(tangent, binormal, normal);
+
+    // calculamos un factor de oclusion por cada fragmento
     float occlusion = 0.0;
     for(int i = 0; i < samplesNum; ++i)
     {
         // get sample position
-        vec3 samplePos = TBN * samples[i]; // from tangent to view-space
+        vec3 samplePos = TBN * samples[i]; // de tangent-space a view-space
         samplePos = fragPos + samplePos * radius; 
         
-        // project sample position (to sample texture) (to get position on screen/texture)
+        // proyectamos la muestra para obtener su posicion en la pantalla (y en la textura)
         vec4 offset = vec4(samplePos, 1.0);
-        offset = projection * offset; // from view to clip-space
-        offset.xyz /= offset.w; // perspective divide
-        offset.xyz = offset.xyz * 0.5 + 0.5; // transform to range 0.0 - 1.0
+        offset = projection * offset; // view-space -> clip-space
+        offset.xyz /= offset.w; // division perspectiva
+        offset.xyz = offset.xyz * 0.5 + 0.5; // -> screen-space [0.0, 1.0]
         
-        // get sample depth
+        // profundidad del fragmento sobre el que se proyecta
         float sampleDepth = texture(gPosition, offset.xy).z; // get depth value of kernel sample
         
-        // range check & accumulate
+        // interpolacion suave para eliminar ruido (en gran parte).
         float rangeCheck;
         if (ssaoSmooth){
             rangeCheck = smoothstep(0.0, 1.0, radius / abs(fragPos.z - sampleDepth));
         }else{
             rangeCheck = radius / abs(fragPos.z - sampleDepth);
         }
+
         occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck * intensity;           
     }
     occlusion = 1.0 - (occlusion / samplesNum);

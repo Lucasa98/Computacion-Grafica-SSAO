@@ -2,7 +2,7 @@
 * Trabajo Práctico de Computación Gráfica
 *               FICH-UNL
 * Implementación de Screen Space Ambient Occlusion
-* Alves, Rodrigo
+* Alvez, Rodrigo
 * Saurin, Lucas
 * 
 * Se tomó como base código de LearnOpenGL.com
@@ -44,7 +44,7 @@ std::vector<glm::vec3> GenerateSamples(int n = 64);
 std::vector<glm::vec3> GenerateRotationNoise();
 
 // DEBUG shader flags
-bool DEBUG_Pos = false, unoPressed = false, DEBUG_Normal = false, dosPressed = false, DEBUG_SSAO = false, tresPressed = false, DEBUG_noise = false, cuatroPressed = false;
+bool DEBUG_Pos = false, unoPressed = false, DEBUG_Normal = false, dosPressed = false, DEBUG_SSAO = false, tresPressed = false, DEBUG_Color = false, cuatroPressed = false;
 
 // camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -117,6 +117,7 @@ int main()
     Shader shaderSSAO("ssao_shader.vert", "ssao_shader.frag");
     Shader shaderPos("gPos_shader.vert", "gPos_shader.frag");
     Shader shaderNormal("gNormal_shader.vert", "gNormal_shader.frag");
+    Shader shaderColor("gColor_shader.vert", "gColor_shader.frag");
     Shader shaderSSAOViewer("ssaoViewer_shader.vert", "ssaoViewer_shader.frag");
 
     // load models (Assimp es bastante lento)
@@ -259,6 +260,11 @@ int main()
     shaderNormal.setInt("gNormal", 1);
     shaderNormal.setInt("gAlbedo", 2);
 
+    shaderColor.use();
+    shaderColor.setInt("gPosition", 0);
+    shaderColor.setInt("gNormal", 1);
+    shaderColor.setInt("gAlbedo", 2);
+
     shaderSSAOViewer.use();
     shaderSSAOViewer.setInt("gPosition", 0);
     shaderSSAOViewer.setInt("gNormal", 1);
@@ -266,7 +272,7 @@ int main()
 
     // ----------      ----------
 
-    glClearColor(0.25f, 0.25f, 0.4f, 1.0f);
+    glClearColor(0.35f, 0.35f, 0.55f, 1.0f);
     glEnable(GL_DEPTH_TEST);
 
     // render loop
@@ -337,7 +343,7 @@ int main()
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         
         // ---------- SSAO ----------
-        // mandar la informacion del gBuffer al SSAO framebuffer para calcular el ssao-buffer
+        // mandar la informacion del gBuffer al SSAO framebuffer para calcular la oclusion
         glBindFramebuffer(GL_FRAMEBUFFER, ssaoFBO);
             glClear(GL_COLOR_BUFFER_BIT);
             shaderSSAOPass.use();
@@ -373,11 +379,14 @@ int main()
             shaderPos.use();
             shaderPos.setVec3("light.Position", lightPosView);
             shaderPos.setVec3("light.Color", lightColor);
-        }
-        else if (DEBUG_Normal) {
+        }else if (DEBUG_Normal) {
             shaderNormal.use();
             shaderNormal.setVec3("light.Position", lightPosView);
             shaderNormal.setVec3("light.Color", lightColor);
+        }else if (DEBUG_Color) {
+            shaderColor.use();
+            shaderColor.setVec3("light.Position", lightPosView);
+            shaderColor.setVec3("light.Color", lightColor);
         }
         else if (DEBUG_SSAO) {
             shaderSSAOViewer.use();
@@ -399,7 +408,7 @@ int main()
         glBindTexture(GL_TEXTURE_2D, ssaoColorBuffer);
         renderQuad();
         
-        // finally render quad
+        // FINALMENTE renderizar el quad
         renderQuad();
 
         // ---------- ImGui ----------
@@ -411,8 +420,10 @@ int main()
 
         Combo(".obj (O)", &currentModel, models);
         ImGui::Checkbox("Rotate (R)", &rotateModel);
-        ImGui::Checkbox("Positions shading (1)", &DEBUG_Pos);
-        ImGui::Checkbox("Normals shading (2)", &DEBUG_Normal);
+        ImGui::Checkbox("gPositions shading (1)", &DEBUG_Pos);
+        ImGui::Checkbox("gNormals shading (2)", &DEBUG_Normal);
+        ImGui::Checkbox("gColor shading (3)", &DEBUG_Color);
+        //ImGui::Checkbox("occlusion shading (4)", &DEBUG_SSAO);    No muestra la escala de grises esperaria, no encuentro el error
         ImGui::Checkbox("SSAO (Z)", &SSAO);
         ImGui::Checkbox("Smooth (K)", &ssaoSmooth);
         ImGui::SliderFloat("SSAO intensity", &ssaoIntensity, 0.1f, 9.f);
@@ -425,6 +436,7 @@ int main()
 
         // ---------- ImGui ----------
 
+        // rotacion del modelo
         if (rotateModel) modelAngle += 1.f + deltaTime;
 
         // glfw: swap buffers and poll IO events (keys pressed/released, mouse moved etc.)
@@ -517,8 +529,14 @@ void processInput(GLFWwindow* window)
     if (!tresPressed && glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS)                   // SSAO
         tresPressed = true;
     if (tresPressed && glfwGetKey(window, GLFW_KEY_3) == GLFW_RELEASE) {
-        DEBUG_SSAO = !DEBUG_SSAO;
+        DEBUG_Color = !DEBUG_Color;
         tresPressed = false;
+    }
+    if (!cuatroPressed && glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS)                   // SSAO
+        cuatroPressed = true;
+    if (cuatroPressed && glfwGetKey(window, GLFW_KEY_4) == GLFW_RELEASE) {
+        DEBUG_SSAO = !DEBUG_SSAO;
+        cuatroPressed = false;
     }
     if (!kPressed && glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)                   // SSAO
         kPressed = true;
@@ -582,6 +600,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
 
+// ImGui auxiliar
 bool Combo(const char* label, int* current_item, const std::vector<std::string>& items) {
     return ImGui::Combo(label, current_item,
         [](void* data, int idx, const char** out_text) {
