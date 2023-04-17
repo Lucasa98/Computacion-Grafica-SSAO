@@ -3,7 +3,7 @@ Implementación de SSAO para Computacion Gráfica
  - Alvez, Rodrigo
  - Saurin, Lucas
 
-Necesario:
+Librerias:
  - OpenGL 3
  - glad
  - glfw
